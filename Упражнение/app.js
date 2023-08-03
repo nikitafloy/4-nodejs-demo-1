@@ -1,52 +1,62 @@
 const { Worker } = require('worker_threads');
 const { fork } = require('child_process');
 const { performance, PerformanceObserver } = require('perf_hooks');
-const { readFileSync } = require('fs');
 
-const file = readFileSync('./file.mp4');
+workerFunction = performance.timerify(workerFunction);
+forkFunction = performance.timerify(forkFunction);
 
-const performanceObserver = new PerformanceObserver((items) => {
-	items.getEntries().forEach((entry) => {
-		console.log(`${entry.name}: ${entry.duration}`);
-	});
+const performanceObserver = new PerformanceObserver((items, observer) => {
+	console.log(items.getEntries());
+
+	// observer.disconnect();
 });
-performanceObserver.observe({ entryTypes: ['measure'] });
 
-const workerFunction = (array) => {
+performanceObserver.observe({ entryTypes: ['function'] });
+
+function workerFunction (array){
 	return new Promise((resolve, reject) => {
-		performance.mark('worker start');
-		const worker = new Worker('./worker.js', {
-			workerData: {
-				array,
-				file
-			}
-		});
-		worker.on('message', (msg) => {
-			performance.mark('worker end');
-			performance.measure('worker', 'worker start', 'worker end');
+		performance.mark('worker');
 
+		const path = __dirname + '/worker.js';
+		const worker = new Worker(path, { workerData: { array } });
+
+		worker.on('message', (msg) => {
 			resolve(msg);
+			worker.terminate();
 		});
+
+		worker.on('error', (err) => {
+			reject(err);
+			worker.terminate();
+		});
+
+		performance.mark('worker');
 	});
 };
 
-const forkFunction = (array) => {
+function forkFunction (array) {
 	return new Promise((resolve, reject) => {
-		performance.mark('fork start');
-		const forkProcess = fork('./fork.js');
-		forkProcess.send({ array, file });
+		const path = __dirname + '/fork.js';
+		const forkProcess = fork(path);
+
+		forkProcess.send({ array });
+
 		forkProcess.on('message', (msg) => {
-			performance.mark('fork end');
-			performance.measure('fork', 'fork start', 'fork end');
 			resolve(msg);
+			forkProcess.kill();
 		});
 
+		forkProcess.on('error', (err) => {
+			reject(msg);
+			forkProcess.kill();
+		});
 	});
 };
 
 const main = async () => {
 	try {
 		await workerFunction([25, 20, 19, 48, 30, 50]);
+
 		await forkFunction([25, 20, 19, 48, 30, 50]);
 	} catch (e) {
 		console.error(e.message);
